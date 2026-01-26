@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-primary text-white;
+  }
+}
+
+@layer components {
+  .glow-button {
+    @apply bg-secondary border border-glow/30 text-glow font-medium px-6 py-3 rounded-lg 
+           transition-all duration-300 hover:shadow-glow hover:border-glow/60;
+  }
+  
+  .glow-card {
+    @apply bg-secondary border border-accent rounded-xl p-6 
+           transition-all duration-300 hover:border-glow/30 hover:shadow-glow-sm;
+  }
+  
+  .team-badge {
+    @apply bg-accent border border-glow/20 text-glow font-bold px-4 py-2 rounded-lg
+           transition-all duration-300 hover:border-glow/50 hover:shadow-glow-sm;
+  }
+  
+  .input-field {
+    @apply bg-accent border border-glow/20 text-white px-4 py-2 rounded-lg
+           focus:outline-none focus:border-glow/50 focus:shadow-glow-sm
+           transition-all duration-300;
+  }
+}
