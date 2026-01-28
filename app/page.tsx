@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import axios from 'axios'
 
 interface Match {
   match_number: number
@@ -10,92 +9,169 @@ interface Match {
   result?: 'team1_win' | 'team2_win' | 'draw'
 }
 
+interface DrawTracker {
+  team1: number
+  team2: number
+  nextToPlay: number // Which team plays next from this draw pair
+}
+
 interface GameState {
-  session_id: string
   total_teams: number
-  current_match?: {
+  current_match: {
     team1: number
     team2: number
-  }
-  losers_queue: number[]
+  } | null
+  waiting_queue: number[] // Teams waiting to play
   match_history: Match[]
+  match_counter: number
+  draw_trackers: DrawTracker[] // Track which team from a draw should play next
 }
 
 export default function Home() {
-  const [apiUrl, setApiUrl] = useState('')
-  const [totalTeams, setTotalTeams] = useState(5)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [totalTeams, setTotalTeams] = useState(8)
   const [gameState, setGameState] = useState<GameState | null>(null)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Load game state from localStorage on mount
   useEffect(() => {
-    setApiUrl(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+    const saved = localStorage.getItem('football_game_state')
+    if (saved) {
+      try {
+        setGameState(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to load saved game:', e)
+      }
+    }
   }, [])
 
-  const startNewGame = async () => {
-    setLoading(true)
+  // Save game state to localStorage whenever it changes
+  useEffect(() => {
+    if (gameState) {
+      localStorage.setItem('football_game_state', JSON.stringify(gameState))
+    }
+  }, [gameState])
+
+  const startNewGame = () => {
+    if (totalTeams < 3 || totalTeams > 20) {
+      setError('Please enter between 3 and 20 teams')
+      return
+    }
+
+    const initialState: GameState = {
+      total_teams: totalTeams,
+      current_match: null,
+      waiting_queue: Array.from({ length: totalTeams }, (_, i) => i + 1), // [1, 2, 3, ..., totalTeams]
+      match_history: [],
+      match_counter: 0,
+      draw_trackers: []
+    }
+
+    setGameState(initialState)
     setError(null)
-    try {
-      const response = await axios.post(`${apiUrl}/sessions`, {
-        total_teams: totalTeams
+  }
+
+  const getNextMatch = () => {
+    if (!gameState) return
+
+    // Need at least 2 teams in the queue
+    if (gameState.waiting_queue.length < 2) {
+      setError('Not enough teams in queue to start a match')
+      return
+    }
+
+    // Take the first two teams from the queue
+    const [team1, team2, ...remainingQueue] = gameState.waiting_queue
+
+    setGameState({
+      ...gameState,
+      current_match: { team1, team2 },
+      waiting_queue: remainingQueue
+    })
+    setError(null)
+  }
+
+  const handleDrawTeamSelection = (team1: number, team2: number): number => {
+    if (!gameState) return team1
+
+    // Find if we have a draw tracker for these two teams
+    const trackerIndex = gameState.draw_trackers.findIndex(
+      dt => (dt.team1 === team1 && dt.team2 === team2) || 
+            (dt.team1 === team2 && dt.team2 === team1)
+    )
+
+    if (trackerIndex === -1) {
+      // First time these teams drew - lower number plays first
+      const lowerTeam = Math.min(team1, team2)
+      const higherTeam = Math.max(team1, team2)
+      
+      // Add new tracker
+      gameState.draw_trackers.push({
+        team1: lowerTeam,
+        team2: higherTeam,
+        nextToPlay: higherTeam // Next time, higher team plays
       })
-      setSessionId(response.data.session_id)
-      await fetchGameState(response.data.session_id)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to start game')
-    }
-    setLoading(false)
-  }
-
-  const fetchGameState = async (sid?: string) => {
-    const id = sid || sessionId
-    if (!id) return
-    
-    try {
-      const response = await axios.get(`${apiUrl}/sessions/${id}`)
-      setGameState(response.data)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to fetch game state')
+      
+      return lowerTeam
+    } else {
+      // Found existing tracker - use and toggle
+      const tracker = gameState.draw_trackers[trackerIndex]
+      const teamToPlay = tracker.nextToPlay
+      
+      // Toggle for next time
+      tracker.nextToPlay = tracker.nextToPlay === tracker.team1 ? tracker.team2 : tracker.team1
+      
+      return teamToPlay
     }
   }
 
-  const recordResult = async (result: 'team1_win' | 'team2_win' | 'draw') => {
-    if (!sessionId || !gameState?.current_match) return
-    
-    setLoading(true)
+  const recordResult = (result: 'team1_win' | 'team2_win' | 'draw') => {
+    if (!gameState || !gameState.current_match) return
+
+    const { team1, team2 } = gameState.current_match
+    const newMatchNumber = gameState.match_counter + 1
+
+    // Create match record
+    const match: Match = {
+      match_number: newMatchNumber,
+      team1,
+      team2,
+      result
+    }
+
+    let newQueue = [...gameState.waiting_queue]
+
+    if (result === 'team1_win') {
+      // Team 1 wins, stays on - Team 1 goes to front of queue
+      // Team 2 loses, goes to back of queue
+      newQueue = [team1, ...newQueue, team2]
+    } else if (result === 'team2_win') {
+      // Team 2 wins, stays on - Team 2 goes to front of queue
+      // Team 1 loses, goes to back of queue
+      newQueue = [team2, ...newQueue, team1]
+    } else {
+      // Draw - both teams leave the pitch
+      // Determine which team should play first when they come back
+      const firstToPlay = handleDrawTeamSelection(team1, team2)
+      const secondToPlay = firstToPlay === team1 ? team2 : team1
+      
+      // Add them to the back of the queue in order
+      newQueue = [...newQueue, firstToPlay, secondToPlay]
+    }
+
+    setGameState({
+      ...gameState,
+      current_match: null,
+      waiting_queue: newQueue,
+      match_history: [...gameState.match_history, match],
+      match_counter: newMatchNumber
+    })
     setError(null)
-    try {
-      await axios.post(`${apiUrl}/sessions/${sessionId}/matches`, {
-        team1: gameState.current_match.team1,
-        team2: gameState.current_match.team2,
-        result: result
-      })
-      await fetchGameState()
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to record result')
-    }
-    setLoading(false)
   }
 
-  const getNextMatch = async () => {
-    if (!sessionId) return
-    
-    setLoading(true)
+  const endSession = () => {
+    setGameState(null)
+    localStorage.removeItem('football_game_state')
     setError(null)
-    try {
-      const response = await axios.get(`${apiUrl}/sessions/${sessionId}/next-match`)
-      setGameState(prev => prev ? {
-        ...prev,
-        current_match: {
-          team1: response.data.team1,
-          team2: response.data.team2
-        }
-      } : null)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to get next match')
-    }
-    setLoading(false)
   }
 
   return (
@@ -104,10 +180,10 @@ export default function Home() {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 text-glow">
-            Football Rotation Manager
+            Street Football Rotation Manager
           </h1>
           <p className="text-gray-400 text-lg">
-            5-a-side team rotation system
+            4-a-side team rotation system
           </p>
         </div>
 
@@ -119,7 +195,7 @@ export default function Home() {
         )}
 
         {/* Start Game Section */}
-        {!sessionId && (
+        {!gameState && (
           <div className="glow-card max-w-md mx-auto">
             <h2 className="text-2xl font-bold mb-6 text-glow">Start New Game</h2>
             <div className="space-y-4">
@@ -130,23 +206,22 @@ export default function Home() {
                   min="3"
                   max="20"
                   value={totalTeams}
-                  onChange={(e) => setTotalTeams(parseInt(e.target.value))}
+                  onChange={(e) => setTotalTeams(parseInt(e.target.value) || 3)}
                   className="input-field w-full"
                 />
               </div>
               <button
                 onClick={startNewGame}
-                disabled={loading}
                 className="glow-button w-full"
               >
-                {loading ? 'Starting...' : 'Start Game'}
+                Start Game
               </button>
             </div>
           </div>
         )}
 
         {/* Game Interface */}
-        {sessionId && gameState && (
+        {gameState && (
           <div className="space-y-8">
             {/* Current Match */}
             <div className="glow-card">
@@ -166,21 +241,18 @@ export default function Home() {
                   <div className="grid grid-cols-3 gap-4">
                     <button
                       onClick={() => recordResult('team1_win')}
-                      disabled={loading}
                       className="glow-button"
                     >
                       Team {gameState.current_match.team1} Wins
                     </button>
                     <button
                       onClick={() => recordResult('draw')}
-                      disabled={loading}
                       className="glow-button"
                     >
                       Draw
                     </button>
                     <button
                       onClick={() => recordResult('team2_win')}
-                      disabled={loading}
                       className="glow-button"
                     >
                       Team {gameState.current_match.team2} Wins
@@ -189,11 +261,15 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="text-center">
-                  <p className="text-gray-400 mb-4">No current match</p>
+                  <p className="text-gray-400 mb-4">
+                    {gameState.waiting_queue.length < 2 
+                      ? 'Not enough teams to start a match' 
+                      : 'No current match - click below to start next match'}
+                  </p>
                   <button
                     onClick={getNextMatch}
-                    disabled={loading}
-                    className="glow-button"
+                    disabled={gameState.waiting_queue.length < 2}
+                    className="glow-button disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Get Next Match
                   </button>
@@ -203,16 +279,23 @@ export default function Home() {
 
             {/* Game Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Losers Queue */}
+              {/* Waiting Queue */}
               <div className="glow-card">
-                <h3 className="text-xl font-bold mb-4 text-glow">Losers Queue</h3>
-                {gameState.losers_queue.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {gameState.losers_queue.map((team, index) => (
-                      <div key={index} className="team-badge text-sm">
-                        Team {team}
-                      </div>
-                    ))}
+                <h3 className="text-xl font-bold mb-4 text-glow">Waiting Queue</h3>
+                {gameState.waiting_queue.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-500 mb-2">Next teams to play (in order):</p>
+                    <div className="flex flex-wrap gap-2">
+                      {gameState.waiting_queue.map((team, index) => (
+                        <div 
+                          key={`${team}-${index}`} 
+                          className={`team-badge text-sm ${index < 2 ? 'ring-2 ring-glow' : ''}`}
+                        >
+                          Team {team}
+                          {index < 2 && <span className="ml-1 text-xs">▶</span>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <p className="text-gray-500">No teams in queue</p>
@@ -225,7 +308,7 @@ export default function Home() {
                 <div className="space-y-2 text-gray-400">
                   <p>Total Teams: <span className="text-glow">{gameState.total_teams}</span></p>
                   <p>Matches Played: <span className="text-glow">{gameState.match_history.length}</span></p>
-                  <p className="text-xs break-all">Session ID: {sessionId}</p>
+                  <p>Teams in Queue: <span className="text-glow">{gameState.waiting_queue.length}</span></p>
                 </div>
               </div>
             </div>
@@ -264,21 +347,11 @@ export default function Home() {
             {/* Actions */}
             <div className="flex gap-4 justify-center">
               <button
-                onClick={() => {
-                  setSessionId(null)
-                  setGameState(null)
-                }}
+                onClick={endSession}
                 className="bg-accent border border-red-500/30 text-red-400 font-medium px-6 py-3 rounded-lg 
                          transition-all duration-300 hover:shadow-glow hover:border-red-500/60"
               >
                 End Session
-              </button>
-              <button
-                onClick={() => fetchGameState()}
-                disabled={loading}
-                className="glow-button"
-              >
-                Refresh
               </button>
             </div>
           </div>
