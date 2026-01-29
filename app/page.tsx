@@ -29,9 +29,37 @@ interface GameState {
 }
 
 export default function Home() {
-  const [totalTeams, setTotalTeams] = useState(8)
+  const [totalTeams, setTotalTeams] = useState<number | ''>(8)
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Handle team number changes with validation
+  const handleTeamChange = (value: string) => {
+    if (value === '') {
+      setTotalTeams('')
+      return
+    }
+    
+    const num = parseInt(value)
+    if (!isNaN(num)) {
+      // Allow typing but don't restrict yet (validation happens on submit)
+      setTotalTeams(num)
+    }
+  }
+
+  const incrementTeams = () => {
+    const current = totalTeams === '' ? 3 : totalTeams
+    if (current < 20) {
+      setTotalTeams(current + 1)
+    }
+  }
+
+  const decrementTeams = () => {
+    const current = totalTeams === '' ? 3 : totalTeams
+    if (current > 3) {
+      setTotalTeams(current - 1)
+    }
+  }
 
   // Load game state from localStorage on mount
   useEffect(() => {
@@ -53,15 +81,17 @@ export default function Home() {
   }, [gameState])
 
   const startNewGame = () => {
-    if (totalTeams < 3 || totalTeams > 20) {
+    const teams = totalTeams === '' ? 3 : totalTeams
+    
+    if (teams < 3 || teams > 20) {
       setError('Please enter between 3 and 20 teams')
       return
     }
 
     const initialState: GameState = {
-      total_teams: totalTeams,
+      total_teams: teams,
       current_match: null,
-      waiting_queue: Array.from({ length: totalTeams }, (_, i) => i + 1), // [1, 2, 3, ..., totalTeams]
+      waiting_queue: Array.from({ length: teams }, (_, i) => i + 1), // [1, 2, 3, ..., totalTeams]
       match_history: [],
       match_counter: 0,
       draw_trackers: []
@@ -177,11 +207,11 @@ export default function Home() {
 
   // Array of your player images - add your actual image paths here
   const playerImages = [
-     '/images/players/WhatsApp Image 2026-01-29 at 20.19.02.jpeg',
-     '/images/players/photo-1574629810360-7efbbe195018.jpg',
-    '/images/players/photo-1579952363873-27f3bade9f55.jpg',
-    '/images/players/photo-1551958219-acbc608c6377.jpg',
-   
+    '/images/players/player1.jpg',
+    '/images/players/player2.jpg',
+    '/images/players/player3.jpg',
+    '/images/players/player4.jpg',
+    '/images/players/player5.jpg',
     // Add more images as needed
   ]
 
@@ -215,14 +245,43 @@ export default function Home() {
             <div className="space-y-4">
               <div>
                 <label className="block text-gray-400 mb-2">Number of Teams (3-20)</label>
-                <input
-                  type="number"
-                  min="3"
-                  max="20"
-                  value={totalTeams}
-                  onChange={(e) => setTotalTeams(parseInt(e.target.value) || 3)}
-                  className="input-field w-full"
-                />
+                <div className="flex items-center gap-3">
+                  {/* Minus Button */}
+                  <button
+                    type="button"
+                    onClick={decrementTeams}
+                    disabled={totalTeams !== '' && totalTeams <= 3}
+                    className="flex-shrink-0 w-12 h-12 bg-accent border border-glow/30 text-glow font-bold text-xl 
+                             rounded-lg transition-all duration-300 hover:bg-glow/10 hover:border-glow/60 
+                             hover:shadow-glow disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
+                  >
+                    −
+                  </button>
+                  
+                  {/* Number Input */}
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={totalTeams}
+                    onChange={(e) => handleTeamChange(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    placeholder="8"
+                    className="input-field w-full text-center text-2xl font-bold"
+                  />
+                  
+                  {/* Plus Button */}
+                  <button
+                    type="button"
+                    onClick={incrementTeams}
+                    disabled={totalTeams !== '' && totalTeams >= 20}
+                    className="flex-shrink-0 w-12 h-12 bg-accent border border-glow/30 text-glow font-bold text-xl 
+                             rounded-lg transition-all duration-300 hover:bg-glow/10 hover:border-glow/60 
+                             hover:shadow-glow disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <button
                 onClick={startNewGame}
@@ -358,7 +417,7 @@ export default function Home() {
               )}
             </div>
 
-            {/* Actions */}
+           
             <div className="flex gap-4 justify-center">
               <button
                 onClick={endSession}
