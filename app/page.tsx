@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import BackgroundSlideshow from './BackgroundSlideshow'
 
 interface Match {
   match_number: number
@@ -174,9 +175,22 @@ export default function Home() {
     setError(null)
   }
 
+  // Array of your player images - add your actual image paths here
+  const playerImages = [
+     '/images/players/WhatsApp Image 2026-01-29 at 20.19.02.jpeg',
+     '/images/players/photo-1574629810360-7efbbe195018.jpg',
+    '/images/players/photo-1579952363873-27f3bade9f55.jpg',
+    '/images/players/photo-1551958219-acbc608c6377.jpg',
+   
+    // Add more images as needed
+  ]
+
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-6xl mx-auto">
+    <main className="min-h-screen p-8 relative">
+      {/* Background Slideshow */}
+      <BackgroundSlideshow images={playerImages} interval={4000} />
+      
+      <div className="max-w-6xl mx-auto relative z-20">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 text-glow">
