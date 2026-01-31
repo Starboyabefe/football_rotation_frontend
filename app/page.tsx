@@ -205,7 +205,6 @@ export default function Home() {
     setError(null)
   }
 
-  // Array of your player images - add your actual image paths here
   const playerImages = [
      '/images/players/WhatsApp Image 2026-01-29 at 20.19.02.jpeg',
      '/images/players/photo-1574629810360-7efbbe195018.jpg',
