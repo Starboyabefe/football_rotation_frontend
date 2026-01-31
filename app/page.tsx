@@ -208,7 +208,7 @@ export default function Home() {
   const playerImages = [
     '/images/players/ofc.jpeg',
      '/images/players/photo-1574629810360-7efbbe195018.jpg',
-    '/public/images/players/photo-1579952363873-27f3bade9f55 (1).jpg',
+    '/public/images/players/photo-1579952363873-27f3bade9f55(1).jpg',
     '/images/players/photo-1551958219-acbc608c6377.jpg',
     
   ]
