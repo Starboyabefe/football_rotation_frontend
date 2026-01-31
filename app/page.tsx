@@ -207,11 +207,11 @@ export default function Home() {
 
   // Array of your player images - add your actual image paths here
   const playerImages = [
-    '/images/players/player1.jpg',
-    '/images/players/player2.jpg',
-    '/images/players/player3.jpg',
-    '/images/players/player4.jpg',
-    '/images/players/player5.jpg',
+     '/images/players/WhatsApp Image 2026-01-29 at 20.19.02.jpeg',
+     '/images/players/photo-1574629810360-7efbbe195018.jpg',
+    '/images/players/photo-1579952363873-27f3bade9f55.jpg',
+    '/images/players/photo-1551958219-acbc608c6377.jpg',
+   
     // Add more images as needed
   ]
 
@@ -417,7 +417,7 @@ export default function Home() {
               )}
             </div>
 
-           
+            {/* Actions */}
             <div className="flex gap-4 justify-center">
               <button
                 onClick={endSession}
