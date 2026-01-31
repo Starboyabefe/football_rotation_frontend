@@ -206,11 +206,10 @@ export default function Home() {
   }
 
   const playerImages = [
-     '/images/players/WhatsApp Image 2026-01-29 at 20.19.02.jpeg',
+    '/images/players/ofc.jpeg',
      '/images/players/photo-1574629810360-7efbbe195018.jpg',
     '/images/players/photo-1579952363873-27f3bade9f55.jpg',
     '/images/players/photo-1551958219-acbc608c6377.jpg',
-   
     
   ]
 
