@@ -212,7 +212,7 @@ export default function Home() {
     '/images/players/photo-1579952363873-27f3bade9f55.jpg',
     '/images/players/photo-1551958219-acbc608c6377.jpg',
    
-    // Add more images as needed
+    
   ]
 
   return (
