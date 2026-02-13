@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import BackgroundSlideshow from './BackgroundSlideshow'
 
 interface Match {
@@ -8,12 +8,13 @@ interface Match {
   team1: number
   team2: number
   result?: 'team1_win' | 'team2_win' | 'draw'
+  duration?: string
 }
 
 interface DrawTracker {
   team1: number
   team2: number
-  nextToPlay: number // Which team plays next from this draw pair
+  nextToPlay: number
 }
 
 interface GameState {
@@ -22,10 +23,16 @@ interface GameState {
     team1: number
     team2: number
   } | null
-  waiting_queue: number[] // Teams waiting to play
+  waiting_queue: number[]
   match_history: Match[]
   match_counter: number
-  draw_trackers: DrawTracker[] // Track which team from a draw should play next
+  draw_trackers: DrawTracker[]
+}
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
 
 export default function Home() {
@@ -33,47 +40,78 @@ export default function Home() {
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Handle team number changes with validation
+  // Timer state
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [timerRunning, setTimerRunning] = useState(false)
+  const [timerPaused, setTimerPaused] = useState(false)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Start timer — always fresh from 00:00
+  const startTimer = () => {
+    setElapsedSeconds(0)
+    setTimerPaused(false)
+    setTimerRunning(true)
+  }
+
+  // Stop timer entirely, return the duration string for history
+  const stopTimer = (): string => {
+    const duration = formatTime(elapsedSeconds)
+    setTimerRunning(false)
+    setTimerPaused(false)
+    return duration
+  }
+
+  // Pause / resume without resetting
+  const togglePause = () => {
+    if (timerPaused) {
+      setTimerPaused(false)
+      setTimerRunning(true)
+    } else {
+      setTimerPaused(true)
+      setTimerRunning(false)
+    }
+  }
+
+  // Tick every second while running
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1)
+      }, 1000)
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [timerRunning])
+
   const handleTeamChange = (value: string) => {
-    if (value === '') {
-      setTotalTeams('')
-      return
-    }
-    
+    if (value === '') { setTotalTeams(''); return }
     const num = parseInt(value)
-    if (!isNaN(num)) {
-      // Allow typing but don't restrict yet (validation happens on submit)
-      setTotalTeams(num)
-    }
+    if (!isNaN(num)) setTotalTeams(num)
   }
 
   const incrementTeams = () => {
     const current = totalTeams === '' ? 3 : totalTeams
-    if (current < 20) {
-      setTotalTeams(current + 1)
-    }
+    if (current < 20) setTotalTeams(current + 1)
   }
 
   const decrementTeams = () => {
     const current = totalTeams === '' ? 3 : totalTeams
-    if (current > 3) {
-      setTotalTeams(current - 1)
-    }
+    if (current > 3) setTotalTeams(current - 1)
   }
 
-  // Load game state from localStorage on mount
+  // Load from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem('football_game_state')
     if (saved) {
-      try {
-        setGameState(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to load saved game:', e)
-      }
+      try { setGameState(JSON.parse(saved)) }
+      catch (e) { console.error('Failed to load saved game:', e) }
     }
   }, [])
 
-  // Save game state to localStorage whenever it changes
+  // Save to localStorage on every change
   useEffect(() => {
     if (gameState) {
       localStorage.setItem('football_game_state', JSON.stringify(gameState))
@@ -82,110 +120,67 @@ export default function Home() {
 
   const startNewGame = () => {
     const teams = totalTeams === '' ? 3 : totalTeams
-    
     if (teams < 3 || teams > 20) {
       setError('Please enter between 3 and 20 teams')
       return
     }
-
-    const initialState: GameState = {
+    setGameState({
       total_teams: teams,
       current_match: null,
-      waiting_queue: Array.from({ length: teams }, (_, i) => i + 1), // [1, 2, 3, ..., totalTeams]
+      waiting_queue: Array.from({ length: teams }, (_, i) => i + 1),
       match_history: [],
       match_counter: 0,
       draw_trackers: []
-    }
-
-    setGameState(initialState)
+    })
     setError(null)
   }
 
   const getNextMatch = () => {
     if (!gameState) return
-
-    // Need at least 2 teams in the queue
     if (gameState.waiting_queue.length < 2) {
       setError('Not enough teams in queue to start a match')
       return
     }
-
-    // Take the first two teams from the queue
     const [team1, team2, ...remainingQueue] = gameState.waiting_queue
-
-    setGameState({
-      ...gameState,
-      current_match: { team1, team2 },
-      waiting_queue: remainingQueue
-    })
+    setGameState({ ...gameState, current_match: { team1, team2 }, waiting_queue: remainingQueue })
+    startTimer()
     setError(null)
   }
 
   const handleDrawTeamSelection = (team1: number, team2: number): number => {
     if (!gameState) return team1
-
-    // Find if we have a draw tracker for these two teams
     const trackerIndex = gameState.draw_trackers.findIndex(
-      dt => (dt.team1 === team1 && dt.team2 === team2) || 
+      dt => (dt.team1 === team1 && dt.team2 === team2) ||
             (dt.team1 === team2 && dt.team2 === team1)
     )
-
     if (trackerIndex === -1) {
-      // First time these teams drew - lower number plays first
       const lowerTeam = Math.min(team1, team2)
       const higherTeam = Math.max(team1, team2)
-      
-      // Add new tracker
-      gameState.draw_trackers.push({
-        team1: lowerTeam,
-        team2: higherTeam,
-        nextToPlay: higherTeam // Next time, higher team plays
-      })
-      
+      gameState.draw_trackers.push({ team1: lowerTeam, team2: higherTeam, nextToPlay: higherTeam })
       return lowerTeam
     } else {
-      // Found existing tracker - use and toggle
       const tracker = gameState.draw_trackers[trackerIndex]
       const teamToPlay = tracker.nextToPlay
-      
-      // Toggle for next time
       tracker.nextToPlay = tracker.nextToPlay === tracker.team1 ? tracker.team2 : tracker.team1
-      
       return teamToPlay
     }
   }
 
   const recordResult = (result: 'team1_win' | 'team2_win' | 'draw') => {
     if (!gameState || !gameState.current_match) return
-
+    const duration = stopTimer()
     const { team1, team2 } = gameState.current_match
     const newMatchNumber = gameState.match_counter + 1
-
-    // Create match record
-    const match: Match = {
-      match_number: newMatchNumber,
-      team1,
-      team2,
-      result
-    }
+    const match: Match = { match_number: newMatchNumber, team1, team2, result, duration }
 
     let newQueue = [...gameState.waiting_queue]
-
     if (result === 'team1_win') {
-      // Team 1 wins, stays on - Team 1 goes to front of queue
-      // Team 2 loses, goes to back of queue
       newQueue = [team1, ...newQueue, team2]
     } else if (result === 'team2_win') {
-      // Team 2 wins, stays on - Team 2 goes to front of queue
-      // Team 1 loses, goes to back of queue
       newQueue = [team2, ...newQueue, team1]
     } else {
-      // Draw - both teams leave the pitch
-      // Determine which team should play first when they come back
       const firstToPlay = handleDrawTeamSelection(team1, team2)
       const secondToPlay = firstToPlay === team1 ? team2 : team1
-      
-      // Add them to the back of the queue in order
       newQueue = [...newQueue, firstToPlay, secondToPlay]
     }
 
@@ -200,6 +195,9 @@ export default function Home() {
   }
 
   const endSession = () => {
+    setTimerRunning(false)
+    setTimerPaused(false)
+    setElapsedSeconds(0)
     setGameState(null)
     localStorage.removeItem('football_game_state')
     setError(null)
@@ -207,26 +205,22 @@ export default function Home() {
 
   const playerImages = [
     '/images/players/ofc.jpeg',
-     '/images/players/photo-1574629810360-7efbbe195018.jpg',
-    '/public/images/players/photo-1579952363873-27f3bade9f55(1).jpg',
+    '/images/players/photo-1574629810360-7efbbe195018.jpg',
+    '/images/players/photo-1579952363873-27f3bade9f55(1).jpg',
     '/images/players/photo-1551958219-acbc608c6377.jpg',
-    
   ]
 
   return (
     <main className="min-h-screen p-8 relative">
-      {/* Background Slideshow */}
       <BackgroundSlideshow images={playerImages} interval={4000} />
-      
+
       <div className="max-w-6xl mx-auto relative z-20">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold mb-4 text-glow">
             Street Football Rotation Manager
           </h1>
-          <p className="text-gray-400 text-lg">
-            4-a-side team rotation system
-          </p>
+          <p className="text-gray-400 text-lg">4-a-side team rotation system</p>
         </div>
 
         {/* Error Display */}
@@ -244,7 +238,6 @@ export default function Home() {
               <div>
                 <label className="block text-gray-400 mb-2">Number of Teams (3-20)</label>
                 <div className="flex items-center gap-3">
-                  {/* Minus Button */}
                   <button
                     type="button"
                     onClick={decrementTeams}
@@ -255,8 +248,6 @@ export default function Home() {
                   >
                     −
                   </button>
-                  
-                  {/* Number Input */}
                   <input
                     type="text"
                     inputMode="numeric"
@@ -267,8 +258,6 @@ export default function Home() {
                     placeholder="8"
                     className="input-field w-full text-center text-2xl font-bold"
                   />
-                  
-                  {/* Plus Button */}
                   <button
                     type="button"
                     onClick={incrementTeams}
@@ -281,10 +270,7 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              <button
-                onClick={startNewGame}
-                className="glow-button w-full"
-              >
+              <button onClick={startNewGame} className="glow-button w-full">
                 Start Game
               </button>
             </div>
@@ -296,7 +282,66 @@ export default function Home() {
           <div className="space-y-8">
             {/* Current Match */}
             <div className="glow-card">
-              <h2 className="text-2xl font-bold mb-6 text-glow">Current Match</h2>
+
+              {/* Title row: heading + timer + pause button */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-glow">Current Match</h2>
+
+                {/* Timer — only visible when a match is active */}
+                {gameState.current_match && (
+                  <div className="flex items-center gap-2">
+
+                    {/* Timer display box */}
+                    <div className={`flex items-center gap-2 border rounded-xl px-4 py-2 transition-all duration-300
+                      ${timerPaused
+                        ? 'bg-yellow-500/10 border-yellow-500/40'
+                        : 'bg-black/40 border-glow/30'
+                      }`}
+                    >
+                      {/* Status dot — green when running, yellow when paused */}
+                      <span className="relative flex h-3 w-3">
+                        <span className={`absolute animate-ping inline-flex h-full w-full rounded-full opacity-75
+                          ${timerPaused ? 'bg-yellow-400' : 'bg-green-400'}`}
+                        />
+                        <span className={`relative inline-flex rounded-full h-3 w-3
+                          ${timerPaused ? 'bg-yellow-500' : 'bg-green-500'}`}
+                        />
+                      </span>
+                      <span className={`text-2xl font-mono font-bold tracking-widest
+                        ${timerPaused ? 'text-yellow-400' : 'text-glow'}`}
+                      >
+                        {formatTime(elapsedSeconds)}
+                      </span>
+                    </div>
+
+                    {/* Pause / Resume button — sits flush next to the timer */}
+                    <button
+                      onClick={togglePause}
+                      title={timerPaused ? 'Resume timer' : 'Pause timer'}
+                      className={`w-10 h-10 rounded-xl border flex items-center justify-center
+                               transition-all duration-300 active:scale-95
+                        ${timerPaused
+                          ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-400 hover:bg-yellow-500/30'
+                          : 'bg-black/40 border-glow/30 text-glow hover:bg-glow/10 hover:border-glow/60'
+                        }`}
+                    >
+                      {timerPaused ? (
+                        // Play / resume triangle
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      ) : (
+                        // Pause bars
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                        </svg>
+                      )}
+                    </button>
+
+                  </div>
+                )}
+              </div>
+
               {gameState.current_match ? (
                 <div className="space-y-6">
                   <div className="flex items-center justify-center gap-8">
@@ -308,24 +353,14 @@ export default function Home() {
                       Team {gameState.current_match.team2}
                     </div>
                   </div>
-                  
                   <div className="grid grid-cols-3 gap-4">
-                    <button
-                      onClick={() => recordResult('team1_win')}
-                      className="glow-button"
-                    >
+                    <button onClick={() => recordResult('team1_win')} className="glow-button">
                       Team {gameState.current_match.team1} Wins
                     </button>
-                    <button
-                      onClick={() => recordResult('draw')}
-                      className="glow-button"
-                    >
+                    <button onClick={() => recordResult('draw')} className="glow-button">
                       Draw
                     </button>
-                    <button
-                      onClick={() => recordResult('team2_win')}
-                      className="glow-button"
-                    >
+                    <button onClick={() => recordResult('team2_win')} className="glow-button">
                       Team {gameState.current_match.team2} Wins
                     </button>
                   </div>
@@ -333,9 +368,9 @@ export default function Home() {
               ) : (
                 <div className="text-center">
                   <p className="text-gray-400 mb-4">
-                    {gameState.waiting_queue.length < 2 
-                      ? 'Not enough teams to start a match' 
-                      : 'No current match - click below to start next match'}
+                    {gameState.waiting_queue.length < 2
+                      ? 'Not enough teams to start a match'
+                      : 'No current match — click below to start next match'}
                   </p>
                   <button
                     onClick={getNextMatch}
@@ -350,7 +385,6 @@ export default function Home() {
 
             {/* Game Info Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Waiting Queue */}
               <div className="glow-card">
                 <h3 className="text-xl font-bold mb-4 text-glow">Waiting Queue</h3>
                 {gameState.waiting_queue.length > 0 ? (
@@ -358,8 +392,8 @@ export default function Home() {
                     <p className="text-sm text-gray-500 mb-2">Next teams to play (in order):</p>
                     <div className="flex flex-wrap gap-2">
                       {gameState.waiting_queue.map((team, index) => (
-                        <div 
-                          key={`${team}-${index}`} 
+                        <div
+                          key={`${team}-${index}`}
                           className={`team-badge text-sm ${index < 2 ? 'ring-2 ring-glow' : ''}`}
                         >
                           Team {team}
@@ -373,7 +407,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Session Info */}
               <div className="glow-card">
                 <h3 className="text-xl font-bold mb-4 text-glow">Session Info</h3>
                 <div className="space-y-2 text-gray-400">
@@ -407,6 +440,11 @@ export default function Home() {
                       <span className="text-sm text-gray-500">
                         {match.result === 'draw' ? 'Draw' : match.result === 'team1_win' ? 'T1 Win' : 'T2 Win'}
                       </span>
+                      {match.duration && (
+                        <span className="text-xs font-mono bg-black/40 border border-glow/20 text-glow px-2 py-1 rounded-lg">
+                          ⏱ {match.duration}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
