@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import BackgroundSlideshow from './BackgroundSlideshow'
-import { db } from '../lib/firebase'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import BackgroundSlideshow from './app/BackgroundSlideshow'
+
 
 interface Match {
   match_number: number
@@ -22,7 +21,7 @@ interface DrawTracker {
 interface GameState {
   total_teams: number
   current_match: {
-    team1: number
+    team1: number 
     team2: number
   } | null
   waiting_queue: number[]
@@ -30,9 +29,6 @@ interface GameState {
   match_counter: number
   draw_trackers: DrawTracker[]
 }
-
-// Single shared document — everyone reads/writes the same game
-const SESSION_DOC = doc(db, 'sessions', 'current')
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60)
@@ -44,8 +40,6 @@ export default function Home() {
   const [totalTeams, setTotalTeams] = useState<number | ''>(8)
   const [gameState, setGameState] = useState<GameState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loadingCloud, setLoadingCloud] = useState(true)
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'saving' | 'error'>('synced')
 
   // Timer state
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -53,12 +47,14 @@ export default function Home() {
   const [timerPaused, setTimerPaused] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Start timer — always fresh from 00:00
   const startTimer = () => {
     setElapsedSeconds(0)
     setTimerPaused(false)
     setTimerRunning(true)
   }
 
+  // Stop timer entirely, return the duration string for history
   const stopTimer = (): string => {
     const duration = formatTime(elapsedSeconds)
     setTimerRunning(false)
@@ -66,6 +62,7 @@ export default function Home() {
     return duration
   }
 
+  // Pause / resume without resetting
   const togglePause = () => {
     if (timerPaused) {
       setTimerPaused(false)
@@ -76,6 +73,7 @@ export default function Home() {
     }
   }
 
+  // Tick every second while running
   useEffect(() => {
     if (timerRunning) {
       timerRef.current = setInterval(() => {
@@ -105,49 +103,21 @@ export default function Home() {
     if (current > 3) setTotalTeams(current - 1)
   }
 
-  // Load game state on mount: try cloud first, fall back to local cache
+  // Load from localStorage on mount
   useEffect(() => {
-    const loadGame = async () => {
-      try {
-        const snapshot = await getDoc(SESSION_DOC)
-        if (snapshot.exists()) {
-          const cloudState = snapshot.data() as GameState
-          setGameState(cloudState)
-          localStorage.setItem('football_game_state', JSON.stringify(cloudState))
-        } else {
-          // No cloud session yet — check local cache
-          const saved = localStorage.getItem('football_game_state')
-          if (saved) setGameState(JSON.parse(saved))
-        }
-      } catch (e) {
-        console.error('Failed to load from cloud, using local cache:', e)
-        const saved = localStorage.getItem('football_game_state')
-        if (saved) setGameState(JSON.parse(saved))
-        setSyncStatus('error')
-      }
-      setLoadingCloud(false)
+    const saved = localStorage.getItem('football_game_state')
+    if (saved) {
+      try { setGameState(JSON.parse(saved)) }
+      catch (e) { console.error('Failed to load saved game:', e) }
     }
-    loadGame()
   }, [])
 
-  // Save to Firestore + localStorage whenever state changes (after initial load)
+  // Save to localStorage on every change
   useEffect(() => {
-    if (!gameState || loadingCloud) return
-
-    localStorage.setItem('football_game_state', JSON.stringify(gameState))
-
-    const saveToCloud = async () => {
-      setSyncStatus('saving')
-      try {
-        await setDoc(SESSION_DOC, gameState)
-        setSyncStatus('synced')
-      } catch (e) {
-        console.error('Failed to sync to cloud:', e)
-        setSyncStatus('error')
-      }
+    if (gameState) {
+      localStorage.setItem('football_game_state', JSON.stringify(gameState))
     }
-    saveToCloud()
-  }, [gameState, loadingCloud])
+  }, [gameState])
 
   const startNewGame = () => {
     const teams = totalTeams === '' ? 3 : totalTeams
@@ -225,42 +195,21 @@ export default function Home() {
     setError(null)
   }
 
-  const endSession = async () => {
+  const endSession = () => {
     setTimerRunning(false)
     setTimerPaused(false)
     setElapsedSeconds(0)
     setGameState(null)
     localStorage.removeItem('football_game_state')
-    try {
-      await setDoc(SESSION_DOC, {
-        total_teams: 0,
-        current_match: null,
-        waiting_queue: [],
-        match_history: [],
-        match_counter: 0,
-        draw_trackers: []
-      })
-    } catch (e) {
-      console.error('Failed to clear cloud session:', e)
-    }
     setError(null)
   }
 
   const playerImages = [
     '/images/players/ofc.jpeg',
     '/images/players/photo-1574629810360-7efbbe195018.jpg',
-    '/public/images/players/photo-1579952363873-27f3bade9f55(1).jpg',
+    '/images/players/photo-1579952363873-27f3bade9f55(1).jpg',
     '/images/players/photo-1551958219-acbc608c6377.jpg',
   ]
-
-  // Show a simple loading state while we check the cloud for an existing session
-  if (loadingCloud) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <p className="text-glow text-xl animate-pulse">Loading game...</p>
-      </main>
-    )
-  }
 
   return (
     <main className="min-h-screen p-8 relative">
@@ -273,22 +222,6 @@ export default function Home() {
             Street Football Rotation Manager
           </h1>
           <p className="text-gray-400 text-lg">4-a-side team rotation system</p>
-
-          {/* Sync status indicator */}
-          {gameState && (
-            <div className="flex items-center justify-center gap-2 mt-3">
-              <span className={`w-2 h-2 rounded-full ${
-                syncStatus === 'synced' ? 'bg-green-500' :
-                syncStatus === 'saving' ? 'bg-yellow-500 animate-pulse' :
-                'bg-red-500'
-              }`} />
-              <span className="text-xs text-gray-500">
-                {syncStatus === 'synced' && 'Synced to cloud'}
-                {syncStatus === 'saving' && 'Saving...'}
-                {syncStatus === 'error' && 'Sync failed — saved locally only'}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Error Display */}
@@ -351,17 +284,22 @@ export default function Home() {
             {/* Current Match */}
             <div className="glow-card">
 
+              {/* Title row: heading + timer + pause button */}
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-glow">Current Match</h2>
 
+                {/* Timer — only visible when a match is active */}
                 {gameState.current_match && (
                   <div className="flex items-center gap-2">
+
+                    {/* Timer display box */}
                     <div className={`flex items-center gap-2 border rounded-xl px-4 py-2 transition-all duration-300
                       ${timerPaused
                         ? 'bg-yellow-500/10 border-yellow-500/40'
                         : 'bg-black/40 border-glow/30'
                       }`}
                     >
+                      {/* Status dot — green when running, yellow when paused */}
                       <span className="relative flex h-3 w-3">
                         <span className={`absolute animate-ping inline-flex h-full w-full rounded-full opacity-75
                           ${timerPaused ? 'bg-yellow-400' : 'bg-green-400'}`}
@@ -377,6 +315,7 @@ export default function Home() {
                       </span>
                     </div>
 
+                    {/* Pause / Resume button — sits flush next to the timer */}
                     <button
                       onClick={togglePause}
                       title={timerPaused ? 'Resume timer' : 'Pause timer'}
@@ -388,15 +327,18 @@ export default function Home() {
                         }`}
                     >
                       {timerPaused ? (
+                        // Play / resume triangle
                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                           <path d="M8 5v14l11-7z" />
                         </svg>
                       ) : (
+                        // Pause bars
                         <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
                           <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                         </svg>
                       )}
                     </button>
+
                   </div>
                 )}
               </div>
