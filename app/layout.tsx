@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Football Rotation Manager',
-  description: '5-a-side football team rotation system',
+  title: 'Street Football Rotation Manager',
+  description: '4-a-side football team rotation system',
 }
 
 export default function RootLayout({
